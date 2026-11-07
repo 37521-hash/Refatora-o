@@ -1,0 +1,44 @@
+### 1 - esperado 201
+POST http://localhost:8080/produtos
+Content-Type: application/json
+
+{"codigo": "P-01", "nome": "Suco", "preco": 5.50, "estoque": 1}
+
+### 2 - esperado 409
+POST http://localhost:8080/produtos
+Content-Type: application/json
+
+{"codigo": "P-01", "nome": "Suco", "preco": 5.50, "estoque": 1}
+
+### 3 - esperado 400
+POST http://localhost:8080/produtos
+Content-Type: application/json
+
+{"codigo": "P-02", "preco": 3.00, "estoque": 4}
+
+### 4 - esperado 400
+POST http://localhost:8080/produtos
+Content-Type: application/json
+
+{"codigo": "P-03", "nome": "Bala", "preco": 0, "estoque": 4}
+
+### 5 - esperado 409
+DELETE http://localhost:8080/produtos/1
+
+### 6 - esperado 200
+POST http://localhost:8080/produtos/1/vender
+
+### 7 - esperado 409
+POST http://localhost:8080/produtos/1/vender
+
+### 8 - esperado 204
+DELETE http://localhost:8080/produtos/1
+
+### 9 - esperado 404
+GET http://localhost:8080/produtos/1
+
+### 10 - esperado 404
+POST http://localhost:8080/produtos/99/vender
+
+### Parte 4 - esperado 404
+DELETE http://localhost:8080/produtos/99

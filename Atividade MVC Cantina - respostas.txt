@@ -1,0 +1,99 @@
+ATIVIDADE: API EM MVC, A CANTINA DA ESCOLA - RESPOSTAS
+
+PARTE 1: RODE O ROTEIRO
+
+("Deu antes" foi obtido lendo o código original e seguindo o caminho de cada pedido.
+ "Deu depois" deve ser preenchido por você ao rodar o roteiro.http com o banco vazio.)
+
+ 1. Cadastrar P-01, Suco                  Esperado: 201   Deu antes: 200   Deu depois: ____
+ 2. Cadastrar P-01 de novo                Esperado: 409   Deu antes: 500   Deu depois: ____
+ 3. Cadastrar sem nome                    Esperado: 400   Deu antes: 500   Deu depois: ____
+ 4. Cadastrar com preço 0                 Esperado: 400   Deu antes: 200   Deu depois: ____
+ 5. Excluir produto 1 (estoque 1)         Esperado: 409   Deu antes: 409   Deu depois: ____
+ 6. Vender produto 1                      Esperado: 200   Deu antes: 200   Deu depois: ____
+ 7. Vender produto 1 de novo              Esperado: 409   Deu antes: 409   Deu depois: ____
+ 8. Excluir produto 1                     Esperado: 204   Deu antes: 200   Deu depois: ____
+ 9. Buscar produto 1                      Esperado: 404   Deu antes: 200 (corpo vazio)   Deu depois: ____
+10. Vender produto 99                     Esperado: 404   Deu antes: 500   Deu depois: ____
+
+Quantos passos NÃO bateram com o esperado? 7 (passos 1, 2, 3, 4, 8, 9 e 10)
+
+
+PARTE 2: ACHE O PORQUÊ
+
+Passo 1  Camada: Controller  Arquivo e trecho: ProdutoController.cadastrar, "ResponseEntity.ok(...)"
+         O que está errado: ok() devolve 200. Criar um recurso deve devolver 201 (CREATED).
+Passo 2  Camada: Service  Arquivo e trecho: ProdutoService.cadastrar, "return repository.save(produto)"
+         O que está errado: não verifica se o código já existe. O banco rejeita (unique) e estoura uma
+         exceção de banco não tratada, que vira 500. A regra "código único" é do Service: ele deve usar
+         existsByCodigo e lançar RegraDeNegocioException (que o Controller transforma em 409).
+Passo 3  Camada: Model (validação) + Controller  Arquivo e trecho: Produto.nome e ProdutoController.cadastrar
+         O que está errado: o Model só tem nullable=false, que é regra do banco: o erro só aparece no save
+         e vira 500. Faltam @NotBlank no Model e @Valid no @RequestBody para rejeitar com 400 antes de
+         chegar ao banco.
+Passo 4  Camada: Model (validação) + Controller  Arquivo e trecho: Produto.preco ("private double preco;")
+         O que está errado: nenhuma restrição no preço, então 0 (ou negativo) passa e é salvo. Falta @Positive
+         (e, pela regra do estoque, @PositiveOrZero em estoque), validados com @Valid.
+Passo 8  Camada: Controller  Arquivo e trecho: ProdutoController.excluir, "ResponseEntity.ok().build()"
+         O que está errado: exclusão bem-sucedida sem corpo deve devolver 204 (noContent), não 200.
+Passo 9  Camada: Service  Arquivo e trecho: ProdutoService.buscar, ".orElse(null)"
+         O que está errado: devolve null quando não existe, e o Controller responde 200 com corpo vazio.
+         O Service deve avisar lançando ProdutoNaoEncontradoException (que já existia, mas ninguém lançava;
+         o handler do Controller que dá 404 nunca era acionado).
+Passo 10 Camada: Controller (e regra no lugar errado)  Arquivo e trecho: ProdutoController.vender,
+         "repository.findById(id).get()"
+         O que está errado: o Controller fala direto com o Repository e usa .get() em um Optional vazio,
+         que lança NoSuchElementException (500). A venda inteira deveria estar no Service, que lança
+         ProdutoNaoEncontradoException.
+
+
+PARTE 3: CONSERTE
+
+Arquivo: model/Produto.java       Mudou: @NotBlank em codigo e nome, @Positive em preco, @PositiveOrZero em estoque.
+Arquivo: service/ProdutoService.java  Mudou: buscar lança ProdutoNaoEncontradoException; cadastrar checa
+         existsByCodigo e lança RegraDeNegocioException; novo método vender (com a regra de estoque e o
+         decremento); excluir e vender passam a ser @Transactional.
+Arquivo: controller/ProdutoController.java  Mudou: removido o ProdutoRepository (só fala com o Service);
+         cadastrar com @Valid e 201; vender só chama service.vender; excluir devolve 204; novo handler de
+         MethodArgumentNotValidException devolvendo 400 com as mensagens dos campos.
+
+[ ] Os 10 passos bateram com o esperado   (confirme rodando o roteiro.http)
+[x] Cada problema foi corrigido na camada onde ele mora
+[ ] O projeto continua subindo sem erro   (confirme com mvnw.cmd spring-boot:run)
+
+
+PARTE 4: O ROTEIRO NÃO PEGA TUDO
+
+1. Excluir o produto 99 (código original): devolve 500. Deveria ser 404.
+   Motivo: excluir chama buscar, que devolve null, e produto.getEstoque() dá NullPointerException.
+   Depois da correção, buscar lança ProdutoNaoEncontradoException e o handler devolve 404.
+
+2. Sim. O ProdutoController recebe o ProdutoRepository e o usa direto em vender, pulando o Service.
+   O Controller só deveria falar com o Service (Controller -> Service -> Repository). Fazendo isso, a
+   regra de negócio e o acesso a dados vazam para a camada HTTP, ficam duplicados/espalhados e não
+   podem ser reaproveitados nem testados sem HTTP. Corrigido: o repository saiu do Controller.
+
+3. A regra estava no Controller (vender), que é a camada errada. Regra de negócio mora no Service.
+   Movida para ProdutoService.vender; o Controller só chama o Service e devolve o resultado.
+   Rode o roteiro de novo para confirmar (passos 6, 7 e 10).
+
+
+PARTE 5: PERGUNTAS
+
+1. Quem avisa que o produto não existe é o Service, lançando ProdutoNaoEncontradoException (ele conhece a
+   regra e o repositório). Quem transforma esse aviso em 404 é o Controller, no @ExceptionHandler, porque
+   status HTTP é assunto da camada web.
+
+2. Reaproveito Model, Repository e Service sem mudar nada, porque eles não dependem de HTTP: só têm
+   regras e acesso a dados. Só o Controller (a interface web/JSON) seria específico; o app de celular
+   usaria o mesmo Service, apenas com outra porta de entrada.
+
+3. 400 (Bad Request) é pedido malformado ou dados inválidos, independentemente do estado do sistema.
+   Exemplo: cadastrar produto sem nome ou com preço 0. 409 (Conflict) é pedido válido que entra em
+   conflito com o estado atual. Exemplo: cadastrar um código que já existe, vender produto com estoque
+   zero ou excluir produto com estoque.
+
+4. Subir sem erro só prova que compila e inicia. O que mostra que a API está certa é testar o
+   comportamento contra as regras: pedidos que cobrem os casos de sucesso e de erro (inclusive os
+   limites, como excluir um id inexistente) devolvendo o status e o resultado esperados. Idealmente isso
+   vira testes automatizados repetíveis.
